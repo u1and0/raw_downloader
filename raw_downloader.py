@@ -3,7 +3,7 @@
 Usage:
 $ python raw_downloader.py
 
-スキップする話数、出力ディレクトリを調製する。
+スキップする話数、出力ディレクトリを調整する。
 
 Install:
 $ yay -Sy chromedriver
