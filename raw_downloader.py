@@ -80,7 +80,7 @@ def images_to_pdf(files: list[str], pdf_filepath: str):
 
 def main():
     # URLからHTMLを取得
-    url = "https://mangakoma01.net/manga/tuishino-zi/di52hua"
+    url = "https://mangakoma01.net/manga/tuishino-zi/di53hua"
     print(f"fetch content from {url}...")
     html_content = get_content(url)
 
@@ -95,7 +95,7 @@ def main():
     # print("donwloaded file paths: ", jpg_filepaths)
 
     # URL末尾の/以降を保存先のPDF名とする
-    pdf_filename = f"{url.split('/')[-1]}.pdf"
+    pdf_filename = f"{url.rsplit('/',maxsplit=1)[-1]}.pdf"
     images_to_pdf(jpg_filepaths, pdf_filename)
 
 
