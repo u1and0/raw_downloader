@@ -1,7 +1,15 @@
+#!/usr/bin/env python3
 """
+Usage:
+$ python raw_downloader.py
+
+スキップする話数、出力ディレクトリを調製する。
+
+Install:
 $ yay -Sy chromedriver
 $ conda install -yc conda-forge selenium
 $ yay -S google-chrome
+
 chromiumをインストールしたが、うまくいかなかった。
 オプションやサービスの指定の仕方がわからなかった
 """
@@ -18,6 +26,8 @@ from selenium.webdriver.chrome.options import Options
 from PIL import Image
 
 CHROMEDRIVER_PATH = "/usr/bin/chromedriver"
+SKIPPED = -134  # すでにダウンロード済みで、スキップする話数
+OUT_DIR = "/mnt/e/Users/U1and0/Documents/PDF/推しの子"
 
 
 def create_driver():
@@ -124,11 +134,9 @@ def main():
     all_story_urls = get_story_urls(soup)
     print("story urls: ", all_story_urls)
 
-    out_dir = "/mnt/e/Users/U1and0/Documents/PDF/推しの子"
-    skipped = -134  # すでにダウンロード済みで、スキップする話数
-    urls = reversed(all_story_urls[:skipped])
+    urls = reversed(all_story_urls[:SKIPPED])
     for url in urls:  # 古い話から順に取得したいためreversed
-        fetch_content_create_pdf(url, out_dir)
+        fetch_content_create_pdf(url, OUT_DIR)
 
 
 if __name__ == "__main__":
