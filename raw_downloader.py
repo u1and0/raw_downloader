@@ -9,6 +9,7 @@ chromiumをインストールしたが、うまくいかなかった。
 import os
 import time
 from typing import Optional
+import tempfile
 import requests
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -41,19 +42,18 @@ def get_content(url: str) -> str:
 def find_jpg(soup: BeautifulSoup) -> list[str]:
     """ jpgで終わるhref属性を持つaタグを検索 """
     # jpg_links = soup.find_all("a", href=re.compile(r"\.jpg$"))
-    jpg_links = soup.select("div.separator a[href$='jpg']")
+    jpg_links = soup.select("div.separator a")
     return [a["href"] for a in jpg_links]
 
 
-def fetch_image(url: str) -> Optional[str]:
+def fetch_image(url: str, save_dir: str) -> Optional[str]:
     """URLをfetchして画像として保存
     ファイル名を返す
     """
     resp = requests.get(url, timeout=30000)
     if resp.status_code != 200:  # コンテンツがなければ終了
         return None
-    cwd = os.getcwd()
-    filename = os.path.join(cwd, url.split("/")[-1])
+    filename = os.path.join(save_dir, url.split("/")[-1])
     with open(filename, "wb") as f:
         f.write(resp.content)
     return filename
@@ -62,8 +62,9 @@ def fetch_image(url: str) -> Optional[str]:
 def download_images(links: list[str]):
     """渡されたURLリストのコンテンツをカレントディレクトリに保存する"""
     downloaded_imgs = []
+    tempdir = tempfile.mkdtemp()
     for link in links:
-        img_file = fetch_image(link)
+        img_file = fetch_image(link, tempdir)
         if img_file:  # コンテンツが見つかればファイル名をリストに追加
             downloaded_imgs.append(img_file)
             print(img_file)
@@ -78,9 +79,21 @@ def images_to_pdf(files: list[str], pdf_filepath: str):
         os.remove(file)
 
 
-def main():
+def get_story_urls(content: BeautifulSoup) -> list[str]:
+    """optionのリストから全話数のURLを取得する"""
+    # nPL_list = content.select("select[name='nPL_list']")[0]
+    nPL_list = content.find("select", {"name": "nPL_list"})
+    options = nPL_list.select("option")
+    return [option["value"] for option in options]
+
+
+def fetch_content_create_pdf(url: str, directory: str):
+    """
+    1. URLからHTMLを取得し
+    2. 画像のダウンロード
+    3. PDFの作成を行う
+    """
     # URLからHTMLを取得
-    url = "https://mangakoma01.net/manga/tuishino-zi/di53hua"
     print(f"fetch content from {url}...")
     html_content = get_content(url)
 
@@ -95,8 +108,27 @@ def main():
     # print("donwloaded file paths: ", jpg_filepaths)
 
     # URL末尾の/以降を保存先のPDF名とする
-    pdf_filename = f"{url.rsplit('/',maxsplit=1)[-1]}.pdf"
+    name = url.rsplit('/', maxsplit=1)[-1]  # URL末尾の名前
+    pdf_filename = f"{directory}/{name}.pdf"
     images_to_pdf(jpg_filepaths, pdf_filename)
+
+
+def main():
+    # 全話のURLを取得するためのURL, どの話数でもいい
+    url = "https://mangakoma01.net/manga/tuishino-zi/di53hua"
+    print(f"fetch story from {url}...")
+    html_content = get_content(url)
+
+    # BeautifulSoupオブジェクトを作成
+    soup = BeautifulSoup(html_content, "html.parser")
+    all_story_urls = get_story_urls(soup)
+    print("story urls: ", all_story_urls)
+
+    out_dir = "/mnt/e/Users/U1and0/Documents/PDF/推しの子"
+    skipped = -134  # すでにダウンロード済みで、スキップする話数
+    urls = reversed(all_story_urls[:skipped])
+    for url in urls:  # 古い話から順に取得したいためreversed
+        fetch_content_create_pdf(url, out_dir)
 
 
 if __name__ == "__main__":
