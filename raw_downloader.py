@@ -25,31 +25,8 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from PIL import Image
 
-CHROMEDRIVER_PATH = "/usr/bin/chromedriver"
-SKIPPED = -134  # すでにダウンロード済みで、スキップする話数
-OUT_DIR = "/mnt/e/Users/U1and0/Documents/PDF/推しの子"
 
-
-def create_driver():
-    """seleniumで扱うchromeドライバを生成する"""
-    service = Service(CHROMEDRIVER_PATH)
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    driver = webdriver.Chrome(service=service, options=options)
-    return driver
-
-
-def get_content(url: str) -> str:
-    """ブラウザを使ってJavaScriptで遅延ダウンロードされるページコンテンツを取得"""
-    driver = create_driver()
-    driver.get(url)
-    time.sleep(3)  # jsの実行を待つ
-    # print(driver.page_source)  # 取得したページを表示
-    return driver.page_source
-
-
-def find_jpg(soup: BeautifulSoup) -> list[str]:
+def find_jpg_source(soup: BeautifulSoup) -> list[str]:
     """ jpgで終わるhref属性を持つaタグを検索 """
     # jpg_links = soup.find_all("a", href=re.compile(r"\.jpg$"))
     jpg_links = soup.select("div.separator a")
@@ -69,7 +46,7 @@ def fetch_image(url: str, save_dir: str) -> Optional[str]:
     return filename
 
 
-def download_images(links: list[str]):
+def download_images(links: list[str]) -> list[str]:
     """渡されたURLリストのコンテンツをカレントディレクトリに保存する"""
     downloaded_imgs = []
     tempdir = tempfile.mkdtemp()
@@ -97,47 +74,81 @@ def get_story_urls(content: BeautifulSoup) -> list[str]:
     return [option["value"] for option in options]
 
 
-def fetch_content_create_pdf(url: str, directory: str):
-    """
-    1. URLからHTMLを取得し
-    2. 画像のダウンロード
-    3. PDFの作成を行う
-    """
-    # URLからHTMLを取得
-    print(f"fetch content from {url}...")
-    html_content = get_content(url)
+class RawDownloader:
 
-    # BeautifulSoupオブジェクトを作成
-    soup = BeautifulSoup(html_content, "html.parser")
-    jpgs = find_jpg(soup)
-    jpgs = jpgs[1:-1]  # 最初と最後のページはサムネ？が入るのでカット
-    # print("download images: ", jpgs)
+    def __init__(self, chromedriver_path: str = "/usr/bin/chromedriver"):
+        self.chromedriver_path = chromedriver_path
 
-    # jpgファイルをカレントディレクトリに保存
-    jpg_filepaths = download_images(jpgs)
-    # print("donwloaded file paths: ", jpg_filepaths)
+    def download(self, url: str, out_dir: str, skip_file_num: int = 0):
+        try:
+            # out_dir が見つからなければディレクトリ作成
+            os.makedirs(out_dir, exist_ok=False)
+        except FileExistsError:
+            pass  # ディレクトリがすでにあったら何もしない
 
-    # URL末尾の/以降を保存先のPDF名とする
-    name = url.rsplit('/', maxsplit=1)[-1]  # URL末尾の名前
-    pdf_filename = f"{directory}/{name}.pdf"
-    images_to_pdf(jpg_filepaths, pdf_filename)
+        skip_file_num *= -1
+        print(f"fetch story from {url}...")
+        html_content = self._get_content(url)
 
+        # BeautifulSoupオブジェクトを作成
+        soup = BeautifulSoup(html_content, "html.parser")
+        all_story_urls = get_story_urls(soup)
+        print("story urls: ", all_story_urls)
 
-def main():
-    # 全話のURLを取得するためのURL, どの話数でもいい
-    url = "https://mangakoma01.net/manga/tuishino-zi/di53hua"
-    print(f"fetch story from {url}...")
-    html_content = get_content(url)
+        urls = reversed(all_story_urls) if skip_file_num == 0 else reversed(
+            all_story_urls[:skip_file_num])
+        for url in urls:  # 古い話から順に取得したいためreversed
+            self._fetch_content_create_pdf(url, out_dir)
 
-    # BeautifulSoupオブジェクトを作成
-    soup = BeautifulSoup(html_content, "html.parser")
-    all_story_urls = get_story_urls(soup)
-    print("story urls: ", all_story_urls)
+    def create_driver(self) -> webdriver.Chrome:
+        # seleniumで扱うchromeドライバを生成する
+        # chromedriver_path が見つからなければ終了
+        if not os.path.isfile(self.chromedriver_path):
+            raise FileNotFoundError(self.chromedriver_path)
+        service = Service(self.chromedriver_path)
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        return webdriver.Chrome(service=service, options=options)
 
-    urls = reversed(all_story_urls[:SKIPPED])
-    for url in urls:  # 古い話から順に取得したいためreversed
-        fetch_content_create_pdf(url, OUT_DIR)
+    def _fetch_content_create_pdf(self, url: str, out_dir: str):
+        """
+        1. URLからHTMLを取得し
+        2. 画像のダウンロード
+        3. PDFの作成を行う
+        """
+        # URLからHTMLを取得
+        print(f"fetch content from {url}...")
+        html_content = self._get_content(url)
+
+        # BeautifulSoupオブジェクトを作成
+        soup = BeautifulSoup(html_content, "html.parser")
+        jpgs_href = find_jpg_source(soup)
+        jpgs_href = jpgs_href[1:-1]  # 最初と最後のページはサムネ？が入るのでカット
+        # print("download images: ", jpgs)
+
+        # jpgファイルをカレントディレクトリに保存
+        jpg_filepaths = download_images(jpgs_href)
+        # print("donwloaded file paths: ", jpg_filepaths)
+
+        # URL末尾の/以降を保存先のPDF名とする
+        name = url.rsplit('/', maxsplit=1)[-1]  # URL末尾の名前
+        pdf_filename = f"{out_dir}/{name}.pdf"
+        images_to_pdf(jpg_filepaths, pdf_filename)
+
+    def _get_content(self, url: str) -> str:
+        """ブラウザを使ってJavaScriptで遅延ダウンロードされるページコンテンツを取得"""
+        driver = self.create_driver()
+        driver.get(url)
+        time.sleep(3)  # jsの実行を待つ
+        # print(driver.page_source)  # 取得したページを表示
+        return driver.page_source
 
 
 if __name__ == "__main__":
-    main()
+    # SKIPPED = -134  # すでにダウンロード済みで、スキップする話数
+    raw = RawDownloader()
+    out_dir = "/mnt/e/Users/U1and0/Documents/PDF/呪術廻戦"
+    # 全話のURLを取得するためのURL, どの話数でもいい
+    url = "https://mangakoma01.net/manga/zhou-shu-hui-zhana004/di1hua"
+    raw.download(url, out_dir)
