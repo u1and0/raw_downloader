@@ -2,7 +2,7 @@
 """
 Mangakoma downloader
 
-https://mangakoma.org/ の漫画をPDFとしてダウンロードします。
+https://mangakoma.org/ または https://mangakoma01.net/ の漫画をPDFとしてダウンロードします。
 
 Usage:
     $ python raw_downloader.py [-h] [-v] [-o OUTPUT] [-s SKIP] [-d DRIVER] url
@@ -76,10 +76,30 @@ def images_to_pdf(files: list[str], pdf_filepath: str):
         os.remove(file)
 
 
-def get_story_urls(content: BeautifulSoup) -> list[str]:
+class Selector:
+
+    def __init__(self, url):
+        self.selectors = {
+            "https://mangakoma.org/": {
+                "class": "select-chapter"
+            },
+            "https://mangakoma01.net/": {
+                "name": "nPL_list"
+            },
+        }
+        self.url = url
+        self.value = self.get_selector_value()
+
+    def get_selector_value(self):
+        for key in self.selectors.keys():
+            if self.url.startswith(key):
+                return self.selectors[key]
+        return None
+
+
+def get_story_urls(content: BeautifulSoup, selector: Selector) -> list[str]:
     """optionのリストから全話数のURLを取得する"""
-    # nPL_list = content.select("select[name='nPL_list']")[0]
-    nPL_list = content.find("select", {"name": "nPL_list"})
+    nPL_list = content.find("select", selector.value)
     options = nPL_list.select("option")
     return [option["value"] for option in options]
 
@@ -110,7 +130,10 @@ class RawDownloader:
 
         # BeautifulSoupオブジェクトを作成
         soup = BeautifulSoup(html_content, "html.parser")
-        all_story_urls = get_story_urls(soup)
+        selector = Selector(url)
+        if selector.value is None:
+            raise ValueError(f"None value of Selector {url}")
+        all_story_urls = get_story_urls(soup, selector)
         print("story urls: ", all_story_urls)
 
         urls = reversed(all_story_urls) if skip_file_num == 0 else reversed(
@@ -147,7 +170,9 @@ class RawDownloader:
 
         # jpgファイルをカレントディレクトリに保存
         jpg_filepaths = download_images(jpgs_href)
-        # print("donwloaded file paths: ", jpg_filepaths)
+        print("donwloaded file paths: ", jpg_filepaths)
+        if len(jpg_filepaths) < 1:
+            raise ValueError("None of download file")
 
         # URL末尾の/以降を保存先のPDF名とする
         name = url.rsplit('/', maxsplit=1)[-1]  # URL末尾の名前
