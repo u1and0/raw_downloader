@@ -21,6 +21,7 @@ $ yay -Sy chromedriver google-chrome
 """
 
 import os
+import shutil
 import time
 from typing import Optional, Union
 import tempfile
@@ -54,14 +55,13 @@ def fetch_image(url: str, save_dir: str) -> Optional[str]:
     return filepath
 
 
-def download_images(links: list[str]) -> list[str]:
+def download_images(links: list[str], save_dir: str) -> list[str]:
     """渡されたURLリストのコンテンツを一時保管のディレクトリに保存する
     一時保管ディレクトリ上のファイルパスのリストを返す
     """
     downloaded_img_paths = []
-    tempdir = tempfile.mkdtemp()
     for link in links:
-        img_file = fetch_image(link, tempdir)
+        img_file = fetch_image(link, save_dir)
         if img_file:  # コンテンツが見つかればファイル名をリストに追加
             downloaded_img_paths.append(img_file)
             print(img_file)
@@ -140,20 +140,23 @@ class Mangakoma01NetDownloader:
 
         # BeautifulSoupオブジェクトを作成
         soup = BeautifulSoup(html_content, "html.parser")
-        jpgs_href = []
         jpgs_href = self._find_jpg_source(soup)
         print("download images: ", jpgs_href)
 
-        # jpgファイルをカレントディレクトリに保存
-        jpg_filepaths = download_images(jpgs_href)
-        print("donwloaded file paths: ", jpg_filepaths)
-        if len(jpg_filepaths) < 1:
-            raise ValueError("None of download file")
+        tempdir = tempfile.mkdtemp()
+        try:
+            # jpgファイルをカレントディレクトリに保存
+            jpg_filepaths = download_images(jpgs_href, tempdir)
+            print("donwloaded file paths: ", jpg_filepaths)
+            if len(jpg_filepaths) < 1:
+                raise ValueError("None of download file")
 
-        # URL末尾の/以降を保存先のPDF名とする
-        name = url.rsplit('/', maxsplit=1)[-1]  # URL末尾の名前
-        pdf_filename = f"{out_dir}/{name}.pdf"
-        images_to_pdf(jpg_filepaths, pdf_filename)
+            # URL末尾の/以降を保存先のPDF名とする
+            name = url.rsplit('/', maxsplit=1)[-1]  # URL末尾の名前
+            pdf_filename = f"{out_dir}/{name}.pdf"
+            images_to_pdf(jpg_filepaths, pdf_filename)
+        finally:
+            shutil.rmtree(tempdir)
 
     @classmethod
     def _find_jpg_source(cls, soup: BeautifulSoup) -> list[str]:
