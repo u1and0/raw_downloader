@@ -16,14 +16,13 @@ Options:
     --driver: chrome driver path(default: /usr/bin/chromedriver)
 
 Install:
-$ yay -Sy chromedriver
-$ conda install -yc conda-forge selenium
-$ yay -S google-chrome
+$ pipenv install -r requirements.txt
+$ yay -Sy chromedriver google-chrome
 """
 
 import os
 import time
-from typing import Optional
+from typing import Optional, Union
 import tempfile
 import argparse
 import requests
@@ -33,14 +32,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from PIL import Image
 
-VERSION = "v0.1.0"
-
-
-def find_jpg_source(soup: BeautifulSoup) -> list[str]:
-    """ jpgで終わるhref属性を持つaタグを検索 """
-    # jpg_links = soup.find_all("a", href=re.compile(r"\.jpg$"))
-    jpg_links = soup.select("div.separator a")
-    return [a["href"] for a in jpg_links]
+VERSION = "v0.2.0"
 
 
 def fetch_image(url: str, save_dir: str) -> Optional[str]:
@@ -57,15 +49,17 @@ def fetch_image(url: str, save_dir: str) -> Optional[str]:
 
 
 def download_images(links: list[str]) -> list[str]:
-    """渡されたURLリストのコンテンツを一時保管のディレクトリに保存する"""
-    downloaded_imgs = []
+    """渡されたURLリストのコンテンツを一時保管のディレクトリに保存する
+    一時保管ディレクトリ上のファイルパスのリストを返す
+    """
+    downloaded_img_paths = []
     tempdir = tempfile.mkdtemp()
     for link in links:
         img_file = fetch_image(link, tempdir)
         if img_file:  # コンテンツが見つかればファイル名をリストに追加
-            downloaded_imgs.append(img_file)
+            downloaded_img_paths.append(img_file)
             print(img_file)
-    return downloaded_imgs
+    return downloaded_img_paths
 
 
 def images_to_pdf(files: list[str], pdf_filepath: str):
@@ -76,41 +70,14 @@ def images_to_pdf(files: list[str], pdf_filepath: str):
         os.remove(file)
 
 
-class Selector:
-
-    def __init__(self, url):
-        self.selectors = {
-            "https://mangakoma.org/": {
-                "class": "select-chapter"
-            },
-            "https://mangakoma01.net/": {
-                "name": "nPL_list"
-            },
-        }
-        self.url = url
-        self.value = self.get_selector_value()
-
-    def get_selector_value(self):
-        for key in self.selectors.keys():
-            if self.url.startswith(key):
-                return self.selectors[key]
-        return None
-
-
-def get_story_urls(content: BeautifulSoup, selector: Selector) -> list[str]:
-    """optionのリストから全話数のURLを取得する"""
-    nPL_list = content.find("select", selector.value)
-    options = nPL_list.select("option")
-    return [option["value"] for option in options]
-
-
-class RawDownloader:
+class Mangakoma01NetDownloader:
 
     def __init__(self, chromedriver_path: str = "/usr/bin/chromedriver"):
         """ダウンローダーの初期化
         chromedriverのパスを設定する
         """
         self.chromedriver_path = chromedriver_path
+        self.selector = {"name": "nPL_list"}
 
     def download(self, url: str, out_dir: str, skip_file_num: int = 0):
         """
@@ -130,10 +97,7 @@ class RawDownloader:
 
         # BeautifulSoupオブジェクトを作成
         soup = BeautifulSoup(html_content, "html.parser")
-        selector = Selector(url)
-        if selector.value is None:
-            raise ValueError(f"None value of Selector {url}")
-        all_story_urls = get_story_urls(soup, selector)
+        all_story_urls = self._get_story_urls(soup)
         print("story urls: ", all_story_urls)
 
         urls = reversed(all_story_urls) if skip_file_num == 0 else reversed(
@@ -152,6 +116,12 @@ class RawDownloader:
         options.add_argument("--no-sandbox")
         return webdriver.Chrome(service=service, options=options)
 
+    def _get_story_urls(self, content: BeautifulSoup) -> list[str]:
+        """optionのリストから全話数のURLを取得する"""
+        nPL_list = content.find("select", self.selector)
+        options = nPL_list.select("option")
+        return [option["value"] for option in options]
+
     def _fetch_content_create_pdf(self, url: str, out_dir: str):
         """
         1. URLからHTMLを取得し
@@ -164,9 +134,9 @@ class RawDownloader:
 
         # BeautifulSoupオブジェクトを作成
         soup = BeautifulSoup(html_content, "html.parser")
-        jpgs_href = find_jpg_source(soup)
-        jpgs_href = jpgs_href[1:-1]  # 最初と最後のページはサムネ？が入るのでカット
-        # print("download images: ", jpgs)
+        jpgs_href = []
+        jpgs_href = self._find_jpg_source(soup)
+        print("download images: ", jpgs_href)
 
         # jpgファイルをカレントディレクトリに保存
         jpg_filepaths = download_images(jpgs_href)
@@ -179,13 +149,35 @@ class RawDownloader:
         pdf_filename = f"{out_dir}/{name}.pdf"
         images_to_pdf(jpg_filepaths, pdf_filename)
 
+    @classmethod
+    def _find_jpg_source(cls, soup: BeautifulSoup) -> list[str]:
+        """ jpgで終わるhref属性を持つaタグを検索 """
+        # jpg_links = soup.find_all("a", href=re.compile(r"\.jpg$"))
+        jpg_links = soup.select("div.separator a")
+        sources = [a["href"] for a in jpg_links]
+        return sources[1:-1]
+
     def _get_content(self, url: str) -> str:
         """ブラウザを使ってJavaScriptで遅延ダウンロードされるページコンテンツを取得"""
-        driver = self.create_driver()
-        driver.get(url)
-        time.sleep(3)  # jsの実行を待つ
-        # print(driver.page_source)  # 取得したページを表示
-        return driver.page_source
+        with self.create_driver() as driver:
+            driver.get(url)
+            time.sleep(3)  # jsの実行を待つ
+            # print(driver.page_source)  # 取得したページを表示
+            return driver.page_source
+
+
+class MangakomaOrgDownloader(Mangakoma01NetDownloader):
+
+    def __init__(self, chromedriver_path: str = "/usr/bin/chromedriver"):
+        super().__init__(chromedriver_path)
+        self.selector = {"class": "select-chapter"}
+
+    @classmethod
+    def _find_jpg_source(cls, soup: BeautifulSoup) -> list[str]:
+        """ jpgで終わるhref属性を持つaタグを検索 """
+        jpg_links = soup.select("div.page-chapter")
+        sources = [img["src"] for img in jpg_links]
+        return sources[1:]
 
 
 def parse() -> argparse.Namespace:
@@ -231,9 +223,15 @@ def main():
     # コマンドライン引数の解釈
     args = parse()
     # ダウンローダーの初期化
-    raw = RawDownloader(args.driver)
+    raw: Union[MangakomaOrgDownloader, Mangakoma01NetDownloader, None] = None
+    if args.url.startswith("https://mangakoma.org/"):
+        raw = MangakomaOrgDownloader(args.driver)
+    elif args.url.startswith("https://mangakoma01.net/"):
+        raw = Mangakoma01NetDownloader(args.driver)
+    else:
+        raise ValueError(f"Invalid URL {args.url}")
     # PDFのダウンロード
-    raw.download(args.url, args.output)
+    raw.download(args.url, args.output, args.skip)
 
 
 if __name__ == "__main__":
