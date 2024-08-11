@@ -25,6 +25,8 @@ import time
 from typing import Optional, Union
 import tempfile
 import argparse
+import string
+import random
 import requests
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -42,10 +44,14 @@ def fetch_image(url: str, save_dir: str) -> Optional[str]:
     resp = requests.get(url, timeout=30000)
     if resp.status_code != 200:  # コンテンツがなければ終了
         return None
-    filename = os.path.join(save_dir, url.split("/")[-1])
-    with open(filename, "wb") as f:
+    # ランダムなファイル名を決める
+    letters = string.ascii_letters + string.digits
+    filename = "".join(random.choices(letters, k=32))
+    # ファイルを保存
+    filepath = os.path.join(save_dir, filename)
+    with open(filepath, "wb") as f:
         f.write(resp.content)
-    return filename
+    return filepath
 
 
 def download_images(links: list[str]) -> list[str]:
@@ -151,7 +157,10 @@ class Mangakoma01NetDownloader:
 
     @classmethod
     def _find_jpg_source(cls, soup: BeautifulSoup) -> list[str]:
-        """ jpgで終わるhref属性を持つaタグを検索 """
+        """ jpgで終わるhref属性を持つaタグを検索
+        オーバーライドして別のクラスでも使いたいが、
+        selfとしてインスタンスを使うことがないのでclassmethodとしている。
+        """
         # jpg_links = soup.find_all("a", href=re.compile(r"\.jpg$"))
         jpg_links = soup.select("div.separator a")
         sources = [a["href"] for a in jpg_links]
@@ -163,7 +172,8 @@ class Mangakoma01NetDownloader:
             driver.get(url)
             time.sleep(3)  # jsの実行を待つ
             # print(driver.page_source)  # 取得したページを表示
-            return driver.page_source
+            pages = driver.page_source
+        return pages
 
 
 class MangakomaOrgDownloader(Mangakoma01NetDownloader):
