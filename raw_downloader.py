@@ -35,7 +35,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from PIL import Image
 
-VERSION = "v0.2.0"
+VERSION = "v0.2.1"
 
 
 def fetch_image(url: str, save_dir: str) -> Optional[str]:
@@ -156,6 +156,7 @@ class Mangakoma01NetDownloader:
             pdf_filename = f"{out_dir}/{name}.pdf"
             images_to_pdf(jpg_filepaths, pdf_filename)
         finally:
+            print(f"save completed {pdf_filename}")
             shutil.rmtree(tempdir)
 
     @classmethod
@@ -189,7 +190,8 @@ class MangakomaOrgDownloader(Mangakoma01NetDownloader):
     def _find_jpg_source(cls, soup: BeautifulSoup) -> list[str]:
         """ jpgで終わるhref属性を持つaタグを検索 """
         jpg_links = soup.select("div.page-chapter")
-        sources = [img["src"] for img in jpg_links]
+        # print("jpg_links:", jpg_links)
+        sources = [div.find("img")["src"] for div in jpg_links]
         return sources[1:]
 
 
