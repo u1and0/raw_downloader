@@ -38,7 +38,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from PIL import Image
 
-VERSION = "v0.2.1"
+VERSION = "v0.3.0"
 
 
 def fetch_image(url: str, save_dir: str) -> Optional[str]:
