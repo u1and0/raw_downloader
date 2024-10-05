@@ -33,6 +33,9 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from PIL import Image
 
 VERSION = "v0.2.1"
@@ -122,9 +125,9 @@ class Mangakoma01NetDownloader:
         options.add_argument("--no-sandbox")
         return webdriver.Chrome(service=service, options=options)
 
-    def _get_story_urls(self, content: BeautifulSoup) -> list[str]:
+    def _get_story_urls(self, soup: BeautifulSoup) -> list[str]:
         """optionのリストから全話数のURLを取得する"""
-        nPL_list = content.find("select", self.selector)
+        nPL_list = soup.find("select", self.selector)
         options = nPL_list.select("option")
         return [option["value"] for option in options]
 
@@ -195,6 +198,42 @@ class MangakomaOrgDownloader(Mangakoma01NetDownloader):
         return sources[1:]
 
 
+class MangakomaOnlDownloader(MangakomaOrgDownloader):
+
+    def __init__(self, chromedriver_path: str = "/usr/bin/chromedriver"):
+        """https://mangakoma.onl/manga からJPGをダウンロードしてPDF化するクラス"""
+        super().__init__(chromedriver_path)
+        self.selector = {"class": "modal-body chapter-list chapter"}
+
+    def _get_content(self, url: str) -> str:
+        """ブラウザを使ってJavaScriptで遅延ダウンロードされるページコンテンツを取得する。
+        url一覧を取得するために、select.select-chapterをクリックして、
+        モーダルを表示してからページ一覧を取得する。
+        """
+        selector = "select.select-chapter"
+        with self.create_driver() as driver:
+            driver.get(url)
+            time.sleep(3)  # jsの実行を待つ
+
+            # ページの読み込みを待って、(タイムアウト10秒)
+            select_element = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+            # セレクトボックスをクリックして
+            select_element.click()
+            # ページ一覧URLのモーダルを表示したHTMLを返す
+            html = driver.page_source
+        return html
+
+    def _get_story_urls(self, soup: BeautifulSoup) -> list[str]:
+        """optionのリストから全話数のURLを取得する"""
+        chapter_list = soup.find("div", self.selector)
+        if not chapter_list:
+            raise ValueError(f"invalid chapter_list : {chapter_list}")
+        print("[DEBUG] chapter_list", chapter_list)
+        atags = chapter_list.select("a")
+        return [a["href"] for a in atags]
+
+
 def parse() -> argparse.Namespace:
     """コマンドライン引数の解釈"""
     parser = argparse.ArgumentParser(
@@ -243,6 +282,8 @@ def main():
         raw = MangakomaOrgDownloader(args.driver)
     elif args.url.startswith("https://mangakoma01.net/"):
         raw = Mangakoma01NetDownloader(args.driver)
+    elif args.url.startswith("https://mangakoma.onl/manga/"):
+        raw = MangakomaOnlDownloader(args.driver)
     else:
         raise ValueError(f"Invalid URL {args.url}")
     # PDFのダウンロード
