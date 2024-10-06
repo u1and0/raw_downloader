@@ -144,6 +144,7 @@ class Mangakoma01NetDownloader:
         # BeautifulSoupオブジェクトを作成
         soup = BeautifulSoup(html_content, "html.parser")
         jpgs_href = self._find_jpg_source(soup)
+        jpgs_href = self._cut(jpgs_href)
         print("download images: ", jpgs_href)
 
         tempdir = tempfile.mkdtemp()
@@ -171,7 +172,12 @@ class Mangakoma01NetDownloader:
         # jpg_links = soup.find_all("a", href=re.compile(r"\.jpg$"))
         jpg_links = soup.select("div.separator a")
         sources = [a["href"] for a in jpg_links]
-        return sources[1:-1]
+        return sources
+
+    @classmethod
+    def _cut(cls, pages):
+        """最初と最後に挿入される場合がある挿絵を削除する"""
+        return pages[1:-1]
 
     def _get_content(self, url: str) -> str:
         """ブラウザを使ってJavaScriptで遅延ダウンロードされるページコンテンツを取得"""
@@ -195,7 +201,12 @@ class MangakomaOrgDownloader(Mangakoma01NetDownloader):
         jpg_links = soup.select("div.page-chapter")
         # print("jpg_links:", jpg_links)
         sources = [div.find("img")["src"] for div in jpg_links]
-        return sources[1:]
+        return sources
+
+    @classmethod
+    def _cut(cls, pages):
+        """最初と最後に挿入される場合がある挿絵を削除する"""
+        return pages[1:]
 
 
 class MangakomaOnlDownloader(MangakomaOrgDownloader):
@@ -204,6 +215,19 @@ class MangakomaOnlDownloader(MangakomaOrgDownloader):
         """https://mangakoma.onl/manga からJPGをダウンロードしてPDF化するクラス"""
         super().__init__(chromedriver_path)
         self.selector = {"class": "modal-body chapter-list chapter"}
+
+    @classmethod
+    def _find_jpg_source(cls, soup: BeautifulSoup) -> list[str]:
+        """ jpgで終わるhref属性を持つaタグを検索 """
+        jpg_links = soup.select("div.page-chapter")
+        # print("jpg_links:", jpg_links)
+        sources = [div.find("img")["src"] for div in jpg_links]
+        return sources
+
+    @classmethod
+    def _cut(cls, pages):
+        """最初と最後に挿入される場合がある挿絵を削除する"""
+        return pages
 
     def _get_content(self, url: str) -> str:
         """ブラウザを使ってJavaScriptで遅延ダウンロードされるページコンテンツを取得する。
