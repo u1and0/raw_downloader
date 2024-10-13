@@ -36,7 +36,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 VERSION = "v0.3.0"
 
@@ -73,7 +73,16 @@ def download_images(links: list[str], save_dir: str) -> list[str]:
 
 def images_to_pdf(files: list[str], pdf_filepath: str):
     """jpgファイルのリストを指定されたパスのPDFファイルに保存する"""
-    images = [Image.open(img) for img in files]
+    images = []
+    for img in files:
+        try:
+            image = Image.open(img)
+            images.append(image)
+        except (IOError, SyntaxError, UnidentifiedImageError) as e:
+            print(f"このファイルは画像ファイルではありません {e}")
+            continue
+
+    # 画像を一つのPDFファイルに結合
     images[0].save(pdf_filepath, save_all=True, append_images=images[1:])
     for file in files:
         os.remove(file)
@@ -155,12 +164,15 @@ class Mangakoma01NetDownloader:
             if len(jpg_filepaths) < 1:
                 raise ValueError("None of download file")
 
-            # URL末尾の/以降を保存先のPDF名とする
+            # 話数を示すURL
+            # https://mangakoma.onl/manga/dan-john-no-naka-no-hito/chapter-38
+            # のようなURLの末尾の/以降を保存先のPDF名とする
             name = url.rsplit('/', maxsplit=1)[-1]  # URL末尾の名前
             pdf_filename = f"{out_dir}/{name}.pdf"
             images_to_pdf(jpg_filepaths, pdf_filename)
         finally:
             print(f"save completed {pdf_filename}")
+            # ダウンロード後に一時ディレクトリを削除する
             shutil.rmtree(tempdir)
 
     @classmethod
@@ -214,7 +226,6 @@ class MangakomaOnlDownloader(MangakomaOrgDownloader):
     def __init__(self, chromedriver_path: str = "/usr/bin/chromedriver"):
         """https://mangakoma.onl/manga からJPGをダウンロードしてPDF化するクラス"""
         super().__init__(chromedriver_path)
-        self.selector = {"class": "modal-body chapter-list chapter"}
 
     @classmethod
     def _find_jpg_source(cls, soup: BeautifulSoup) -> list[str]:
@@ -250,7 +261,17 @@ class MangakomaOnlDownloader(MangakomaOrgDownloader):
 
     def _get_story_urls(self, soup: BeautifulSoup) -> list[str]:
         """optionのリストから全話数のURLを取得する"""
-        chapter_list = soup.find("div", self.selector)
+        options = soup.select("select.select-chapter option")
+        if len(options) > 1:
+            return [option["value"] for option in options]
+
+        # チャプター選択がモーダルで動的に表示される場合
+        # クリックされて表示したchapter listを探す
+        chapter_list = soup.find(
+            "div",
+            {"class": "modal-body chapter-list chapter"},
+        )
+
         if not chapter_list:
             raise ValueError(f"invalid chapter_list : {chapter_list}")
         print("[DEBUG] chapter_list", chapter_list)
